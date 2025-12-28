@@ -1,0 +1,16 @@
+{
+  "name": "Initiative (MVP)",
+  "version": "0.1.0",
+  "manifest_version": 1,
+  "description": "A simple initiative tracker.",
+  "author": "Josiah",
+  "homepage_url": "http://localhost:5173",
+  "background_url": "/contextMenu.html",
+  "action": {
+    "title": "Initiative",
+    "icon": "/icon.svg",
+    "popover": "/popover.html",
+    "width": 380,
+    "height": 560
+  }
+}
