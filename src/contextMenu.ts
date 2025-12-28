@@ -1,3 +1,4 @@
+// src/contextMenu.ts
 import OBR from "@owlbear-rodeo/sdk";
 import type { Combatant, TrackerState } from "./obrState";
 import { defaultState } from "./obrState";
@@ -36,11 +37,13 @@ function getTokenName(item: AnyItem): string {
 }
 
 function getTokenImageUrl(item: AnyItem): string | undefined {
+  // OBR Image items use `image.url` when present
   const url = item?.image?.url;
   return typeof url === "string" && url.length > 0 ? url : undefined;
 }
 
-// Same base-name rules as App.tsx
+// Keep letter logic stable even when tokens are added later.
+// baseName("Guard B") => "Guard"
 function baseName(name: string): string {
   const n = (name ?? "").trim();
   const m = n.match(/^(.*?)(?:\s+([A-Z]))$/);
@@ -55,16 +58,22 @@ function nextLetter(index: number): string {
   return String.fromCharCode("A".charCodeAt(0) + index);
 }
 
+/**
+ * Given existing combatants and incoming base names, return names with A/B/C...
+ * Uses existing counts so adding more later continues: Guard A, Guard B, then Guard C, Guard D...
+ */
 function assignLetteredNames(
   existing: Combatant[],
   incomingBaseNames: string[]
 ): string[] {
+  // Count existing by base name
   const existingCounts = new Map<string, number>();
   for (const c of existing) {
     const bn = baseName(c.name);
     existingCounts.set(bn, (existingCounts.get(bn) ?? 0) + 1);
   }
 
+  // Compute totals after adding incoming (so we only add letters when needed)
   const totalCounts = new Map<string, number>();
   for (const c of existing) {
     const bn = baseName(c.name);
@@ -75,13 +84,17 @@ function assignLetteredNames(
     totalCounts.set(bn, (totalCounts.get(bn) ?? 0) + 1);
   }
 
+  // Track how many have been used so far (start from existing)
   const usedSoFar = new Map<string, number>(existingCounts);
 
   return incomingBaseNames.map((n) => {
     const bn = baseName(n);
     const total = totalCounts.get(bn) ?? 1;
+
+    // If there's only one of this name total, don't add a letter
     if (total <= 1) return bn;
 
+    // Otherwise assign next letter after the existing ones
     const idx = usedSoFar.get(bn) ?? 0;
     usedSoFar.set(bn, idx + 1);
     return `${bn} ${nextLetter(idx)}`;
@@ -97,11 +110,11 @@ async function toggleInitiative(items: AnyItem[]) {
   const inInit = tokens.filter((t) => t?.metadata?.[ITEM_FLAG_KEY] === true);
   const notInInit = tokens.filter((t) => t?.metadata?.[ITEM_FLAG_KEY] !== true);
 
-  // 1) Remove any flagged tokens from state
+  // Remove flagged tokens from state
   const removeIds = new Set(inInit.map((t) => String(t.id)));
   let nextCombatants = current.combatants.filter((c) => !removeIds.has(c.id));
 
-  // 2) Add any unflagged tokens to state (avoid duplicates by id)
+  // Add unflagged tokens to state (avoid duplicates by id)
   const existingById = new Set(nextCombatants.map((c) => c.id));
   const toAddTokens = notInInit.filter((t) => !existingById.has(String(t.id)));
 
@@ -126,12 +139,15 @@ async function toggleInitiative(items: AnyItem[]) {
   const next: TrackerState = {
     ...current,
     combatants: nextCombatants,
-    activeIndex: Math.min(current.activeIndex, Math.max(0, nextCombatants.length - 1)),
+    activeIndex: Math.min(
+      current.activeIndex,
+      Math.max(0, nextCombatants.length - 1)
+    ),
   };
 
   await OBR.scene.setMetadata({ [META_KEY]: JSON.stringify(next) });
 
-  // 3) Update flags:
+  // Update flags to match new state
   if (inInit.length > 0) {
     await OBR.scene.items.updateItems(
       inInit.map((t) => String(t.id)),
@@ -157,6 +173,7 @@ async function toggleInitiative(items: AnyItem[]) {
   }
 }
 
+// Register a single context menu entry whose icon/label is chosen by filters
 OBR.onReady(async () => {
   await OBR.contextMenu.create({
     id: `${ID}/initiative`,
@@ -187,7 +204,7 @@ OBR.onReady(async () => {
       },
       // Fallback for mixed selections (some in, some out)
       {
-        icon: "/add.svg",
+        icon: "/toggle.svg",
         label: "Toggle Initiative",
         filter: {
           every: [
@@ -197,7 +214,6 @@ OBR.onReady(async () => {
         },
       },
     ],
-
     async onClick(context) {
       await toggleInitiative(context.items as AnyItem[]);
     },

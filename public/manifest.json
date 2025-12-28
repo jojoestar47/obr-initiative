@@ -1,15 +1,15 @@
 {
   "name": "Initiative (MVP)",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "manifest_version": 1,
   "description": "A simple initiative tracker.",
-  "author": "Josiah",
-  "homepage_url": "http://localhost:5173",
-  "background_url": "/contextMenu.html",
+  "author": "joestar",
+  "homepage_url": "https://obr-initiative.pages.dev",
+  "background_url": "/",
   "action": {
     "title": "Initiative",
     "icon": "/icon.svg",
-    "popover": "/popover.html",
+    "popover": "/",
     "width": 380,
     "height": 560
   }
