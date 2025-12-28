@@ -101,7 +101,16 @@ function assignLetteredNames(
   });
 }
 
+/** GM guard (players should never be able to write) */
+async function isCurrentUserGM(): Promise<boolean> {
+  const role = await OBR.player.getRole();
+  return role === "GM";
+}
+
 async function toggleInitiative(items: AnyItem[]) {
+  // Extra safety: if a player somehow triggers this, do nothing.
+  if (!(await isCurrentUserGM())) return;
+
   const tokens = items.filter(isToken);
   if (tokens.length === 0) return;
 
@@ -145,6 +154,7 @@ async function toggleInitiative(items: AnyItem[]) {
     ),
   };
 
+  // GM-only write
   await OBR.scene.setMetadata({ [META_KEY]: JSON.stringify(next) });
 
   // Update flags to match new state
@@ -175,6 +185,9 @@ async function toggleInitiative(items: AnyItem[]) {
 
 // Register a single context menu entry whose icon/label is chosen by filters
 OBR.onReady(async () => {
+  // Only create the context menu for the GM (players won’t even see the buttons)
+  if (!(await isCurrentUserGM())) return;
+
   await OBR.contextMenu.create({
     id: `${ID}/initiative`,
     icons: [
