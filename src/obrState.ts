@@ -44,7 +44,11 @@ export async function loadState(): Promise<TrackerState> {
   return parseState(meta[META_KEY]) ?? defaultState();
 }
 
+/** GM-only write. Players will no-op. */
 export async function saveState(state: TrackerState): Promise<void> {
+  const role = await OBR.player.getRole();
+  if (role !== "GM") return;
+
   await OBR.scene.setMetadata({ [META_KEY]: JSON.stringify(state) });
 }
 
