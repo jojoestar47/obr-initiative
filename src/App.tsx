@@ -385,16 +385,16 @@ export default function App() {
 
             <div className="flex gap-2 shrink-0 items-center">
               <button
-                className="h-10 w-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50 flex items-center justify-center"
+                className="h-11 w-11 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50 flex items-center justify-center"
                 onClick={sortByInitiative}
                 disabled={!showReady || !isGM || state.combatants.length === 0}
                 title={sortDesc ? "Sort high → low" : "Sort low → high"}
               >
-                <SortIcon desc={sortDesc} className="h-5 w-5" />
+                <SortIcon desc={sortDesc} className="h-6 w-6" />
               </button>
 
               <button
-                className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50"
                 onClick={prevTurn}
                 disabled={!showReady || !isGM || state.combatants.length === 0}
               >
@@ -402,7 +402,7 @@ export default function App() {
               </button>
 
               <button
-                className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+                className="px-4 py-2.5 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50"
                 onClick={nextTurn}
                 disabled={!showReady || !isGM || state.combatants.length === 0}
               >
@@ -489,6 +489,7 @@ export default function App() {
                             onClick={(e) => e.stopPropagation()}
                             className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-2 py-2 text-sm text-center disabled:opacity-70"
                             type="number"
+                            inputMode="numeric"
                             value={c.initiative}
                             disabled={!isGM}
                             onChange={(e) =>
@@ -500,7 +501,7 @@ export default function App() {
 
                         {isGM ? (
                           <button
-                            className="h-10 w-10 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm flex items-center justify-center"
+                            className="h-11 w-11 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm flex items-center justify-center"
                             onClick={(e) => {
                               e.stopPropagation();
                               removeCombatant(c.id);
@@ -527,11 +528,11 @@ export default function App() {
                 <div className="text-sm text-zinc-300 font-medium">Controls</div>
 
                 <button
-                  className="h-9 w-9 rounded-xl bg-zinc-800 hover:bg-zinc-700 flex items-center justify-center"
+                  className="h-11 w-11 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 flex items-center justify-center"
                   onClick={() => setControlsOpen((v) => !v)}
                   title={controlsOpen ? "Collapse controls" : "Expand controls"}
                 >
-                  <ChevronIcon open={controlsOpen} className="h-5 w-5" />
+                  <ChevronIcon open={controlsOpen} className="h-6 w-6" />
                 </button>
               </div>
 
@@ -547,6 +548,7 @@ export default function App() {
                     <input
                       className="w-16 rounded-xl bg-zinc-900 border border-zinc-800 px-2 py-1 text-sm text-center"
                       type="number"
+                      inputMode="numeric"
                       value={globalMod}
                       onChange={(e) => setGlobalMod(Number(e.target.value))}
                       title="Adds to all rolls"
@@ -556,7 +558,7 @@ export default function App() {
 
                   <div className="grid grid-cols-2 gap-2">
                     <button
-                      className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-sm font-semibold disabled:opacity-50"
+                      className="px-3 py-3 rounded-xl bg-emerald-600 hover:bg-emerald-500 active:bg-emerald-400 text-sm font-semibold disabled:opacity-50"
                       onClick={addCombatantManual}
                       disabled={!showReady}
                       title="Add a manual row"
@@ -565,7 +567,7 @@ export default function App() {
                     </button>
 
                     <button
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+                      className="px-3 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50"
                       onClick={addSelectedTokens}
                       disabled={!showReady}
                       title="Add selected tokens"
@@ -574,7 +576,7 @@ export default function App() {
                     </button>
 
                     <button
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+                      className="px-3 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50"
                       onClick={rollSelectedTokenInitiative}
                       disabled={!showReady || state.combatants.length === 0}
                       title="Roll initiative for selected tokens"
@@ -583,7 +585,7 @@ export default function App() {
                     </button>
 
                     <button
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50"
+                      className="px-3 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50"
                       onClick={rollAllInitiative}
                       disabled={!showReady || state.combatants.length === 0}
                       title="Roll initiative for everyone"
@@ -592,7 +594,7 @@ export default function App() {
                     </button>
 
                     <button
-                      className="px-3 py-2 rounded-xl bg-zinc-800 hover:bg-zinc-700 text-sm disabled:opacity-50 col-span-2"
+                      className="px-3 py-3 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm disabled:opacity-50 col-span-2"
                       onClick={clearAll}
                       disabled={!showReady}
                     >

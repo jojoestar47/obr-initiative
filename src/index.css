@@ -5,3 +5,19 @@
 :root {
   color-scheme: dark;
 }
+
+/* Eliminate 300ms tap delay on all interactive elements */
+button, input, a, [role="button"] {
+  touch-action: manipulation;
+}
+
+/* Remove number input spinners — too tiny on mobile, users type directly */
+input[type="number"]::-webkit-outer-spin-button,
+input[type="number"]::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}
