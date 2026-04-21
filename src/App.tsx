@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import OBR, { isImage } from "@owlbear-rodeo/sdk";
 import type { Image } from "@owlbear-rodeo/sdk";
 
@@ -83,6 +83,20 @@ function toIntOr0(v: unknown): number {
   return Number.isFinite(n) ? Math.trunc(n) : 0;
 }
 
+function HpBar({ hp, maxHp, className = "" }: { hp: number; maxHp: number; className?: string }) {
+  if (maxHp <= 0) return null;
+  const pct = Math.max(0, Math.min(100, (hp / maxHp) * 100));
+  const color = pct > 60 ? "bg-emerald-500" : pct > 30 ? "bg-amber-400" : "bg-red-500";
+  return (
+    <div className={`h-1.5 w-full rounded-full bg-zinc-800 ${className}`}>
+      <div
+        className={`h-full rounded-full transition-all duration-300 ${color}`}
+        style={{ width: `${pct}%` }}
+      />
+    </div>
+  );
+}
+
 function SortIcon({ desc, className = "" }: { desc: boolean; className?: string }) {
   const activeUp = !desc; // ascending
   const activeDown = desc; // descending
@@ -159,6 +173,9 @@ export default function App() {
   // collapsible bottom ribbon (GM only will be shown)
   const [controlsOpen, setControlsOpen] = useState(true);
 
+  // Turn notification — undefined = not yet initialised (suppress first fire)
+  const prevActiveIdRef = useRef<string | null | undefined>(undefined);
+
   useEffect(() => {
     return OBR.onReady(async () => {
       setReady(true);
@@ -171,7 +188,30 @@ export default function App() {
     return onStateChange(setState);
   }, [ready]);
 
-  const activeId = useMemo(() => state.combatants[state.activeIndex]?.id ?? null, [state]);
+  // Fire a notification whenever the active combatant changes.
+  // Every connected client runs this independently — no broadcast needed.
+  useEffect(() => {
+    if (!ready) return;
+    const active = state.combatants[state.activeIndex];
+    const activeId = active?.id ?? null;
+    if (prevActiveIdRef.current === undefined) {
+      prevActiveIdRef.current = activeId;
+      return;
+    }
+    if (prevActiveIdRef.current !== activeId) {
+      prevActiveIdRef.current = activeId;
+      if (active) OBR.notification.show(`${active.name}'s turn`, "INFO");
+    }
+  }, [state.activeIndex, state.combatants, ready]);
+
+  const activeCombatant = useMemo(() => state.combatants[state.activeIndex] ?? null, [state]);
+  const upNext = useMemo(() => {
+    if (state.combatants.length === 0) return [];
+    return [
+      ...state.combatants.slice(state.activeIndex + 1),
+      ...state.combatants.slice(0, state.activeIndex),
+    ];
+  }, [state.combatants, state.activeIndex]);
 
   async function commit(next: TrackerState) {
     // Absolute write lock: players can never persist changes
@@ -417,106 +457,223 @@ export default function App() {
             ) : state.combatants.length === 0 ? (
               <div className="text-zinc-400 text-sm">
                 No combatants yet.
-                {isGM ? (
-                  <>
-                    {" "}
-                    Select tokens, then click{" "}
-                    <span className="text-zinc-200">Add Selected</span>.
-                  </>
-                ) : null}
+                {isGM && (
+                  <> Select tokens, then click <span className="text-zinc-200">Add Selected</span>.</>
+                )}
               </div>
             ) : (
-              <div className="space-y-2">
-                <div className="px-3 pb-1 grid grid-cols-[44px_minmax(0,1fr)_72px_40px] items-center gap-2 text-[11px] text-zinc-400">
-                  <div />
-                  <div>Name</div>
-                  <div className="text-center">Init</div>
-                  <div />
-                </div>
+              <div className="space-y-4">
 
-                <ul className="space-y-2">
-                  {state.combatants.map((c) => {
-                    const active = c.id === activeId;
-
-                    return (
-                      <li
-                        key={c.id}
-                        onClick={() => selectTokenForCombatant(c)}
-                        className={[
-                          "rounded-2xl border p-2.5",
-                          c.tokenId ? "cursor-pointer" : "",
-                          "grid grid-cols-[44px_minmax(0,1fr)_72px_40px] items-center gap-2",
-                          active
-                            ? "border-emerald-500/70 bg-emerald-500/10 active-glow"
-                            : "border-zinc-800 bg-zinc-950/30",
-                        ].join(" ")}
-                        title={c.tokenId ? "Select token on map" : undefined}
+                {/* ── Spotlight: active combatant ── */}
+                {activeCombatant && (
+                  <div className="rounded-2xl border border-emerald-500/70 bg-emerald-500/10 active-glow p-4">
+                    <div className="flex items-start gap-3">
+                      {/* Avatar */}
+                      <div
+                        className={activeCombatant.tokenId ? "shrink-0 cursor-pointer" : "shrink-0"}
+                        onClick={() => selectTokenForCombatant(activeCombatant)}
                       >
-                        <div className="shrink-0">
-                          {c.imageUrl ? (
-                            <img
-                              src={c.imageUrl}
-                              alt=""
-                              className="h-11 w-11 rounded-xl object-cover border border-zinc-800"
-                              referrerPolicy="no-referrer"
+                        {activeCombatant.imageUrl ? (
+                          <img
+                            src={activeCombatant.imageUrl}
+                            alt=""
+                            className="h-14 w-14 rounded-xl object-cover border border-zinc-700"
+                            referrerPolicy="no-referrer"
+                          />
+                        ) : (
+                          <div className="h-14 w-14 rounded-xl border border-zinc-700 bg-zinc-900 flex items-center justify-center text-base text-zinc-300">
+                            {initials(activeCombatant.name)}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Name + initiative + HP */}
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          {isGM ? (
+                            <input
+                              className="flex-1 min-w-0 rounded-xl bg-zinc-900/80 border border-zinc-700 px-2.5 py-1.5 text-base font-semibold"
+                              value={activeCombatant.name}
+                              onChange={(e) => updateCombatant(activeCombatant.id, { name: e.target.value })}
                               onClick={(e) => e.stopPropagation()}
                             />
                           ) : (
-                            <div
-                              className="h-11 w-11 rounded-xl border border-zinc-800 bg-zinc-900 flex items-center justify-center text-xs text-zinc-300"
+                            <div className="flex-1 min-w-0 text-base font-semibold truncate">{activeCombatant.name}</div>
+                          )}
+                          {/* Initiative badge — editable for GM */}
+                          {isGM ? (
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              className="h-11 w-11 shrink-0 rounded-full bg-emerald-600 text-white font-bold text-center text-base border-2 border-emerald-500"
+                              value={activeCombatant.initiative}
+                              onChange={(e) => updateCombatant(activeCombatant.id, { initiative: Number(e.target.value) })}
                               onClick={(e) => e.stopPropagation()}
-                            >
-                              {initials(c.name)}
+                            />
+                          ) : (
+                            <div className="h-11 w-11 shrink-0 rounded-full bg-emerald-600 text-white font-bold flex items-center justify-center text-base">
+                              {activeCombatant.initiative}
                             </div>
                           )}
                         </div>
 
-                        <div className="min-w-0">
-                          <input
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full min-w-0 rounded-xl bg-zinc-900 border border-zinc-800 px-2.5 py-2 text-sm disabled:opacity-70"
-                            value={c.name}
-                            disabled={!isGM}
-                            onChange={(e) =>
-                              isGM && updateCombatant(c.id, { name: e.target.value })
-                            }
-                            title={c.name}
-                          />
+                        {/* HP bar + inputs */}
+                        <div className="mt-2.5">
+                          <HpBar hp={activeCombatant.hp ?? 0} maxHp={activeCombatant.maxHp ?? 0} />
+                          <div className="mt-1.5 flex items-center gap-1">
+                            {isGM ? (
+                              <>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
+                                  value={activeCombatant.hp ?? 0}
+                                  onChange={(e) => updateCombatant(activeCombatant.id, { hp: Number(e.target.value) })}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <span className="text-xs text-zinc-500">/</span>
+                                <input
+                                  type="number"
+                                  inputMode="numeric"
+                                  className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
+                                  value={activeCombatant.maxHp ?? 0}
+                                  onChange={(e) => updateCombatant(activeCombatant.id, { maxHp: Number(e.target.value) })}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                                <span className="text-xs text-zinc-500">hp</span>
+                              </>
+                            ) : (activeCombatant.maxHp ?? 0) > 0 ? (
+                              <span className="text-xs text-zinc-400">
+                                {activeCombatant.hp ?? 0} / {activeCombatant.maxHp} hp
+                              </span>
+                            ) : null}
+                          </div>
                         </div>
+                      </div>
+                    </div>
 
-                        <div>
-                          <input
-                            onClick={(e) => e.stopPropagation()}
-                            className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-2 py-2 text-sm text-center disabled:opacity-70"
-                            type="number"
-                            inputMode="numeric"
-                            value={c.initiative}
-                            disabled={!isGM}
-                            onChange={(e) =>
-                              isGM &&
-                              updateCombatant(c.id, { initiative: Number(e.target.value) })
-                            }
-                          />
-                        </div>
+                    {isGM && (
+                      <div className="mt-3 flex justify-end">
+                        <button
+                          className="text-xs text-zinc-500 hover:text-zinc-300 active:text-zinc-100 px-2 py-1 rounded-lg hover:bg-zinc-800 active:bg-zinc-700"
+                          onClick={() => removeCombatant(activeCombatant.id)}
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
-                        {isGM ? (
-                          <button
-                            className="h-11 w-11 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm flex items-center justify-center"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              removeCombatant(c.id);
-                            }}
-                            title="Remove"
-                          >
-                            ✕
-                          </button>
-                        ) : (
-                          <div />
-                        )}
-                      </li>
-                    );
-                  })}
-                </ul>
+                {/* ── Up Next ── */}
+                {upNext.length > 0 && (
+                  <div>
+                    <div className="text-[11px] font-semibold tracking-widest text-zinc-500 uppercase px-1 mb-2">
+                      Up Next
+                    </div>
+                    <ul className="space-y-2">
+                      {upNext.map((c) => (
+                        <li
+                          key={c.id}
+                          onClick={() => selectTokenForCombatant(c)}
+                          className={[
+                            "rounded-2xl border border-zinc-800 bg-zinc-950/30 px-2.5 pt-2.5",
+                            isGM || (c.maxHp ?? 0) > 0 ? "pb-2" : "pb-2.5",
+                            c.tokenId ? "cursor-pointer" : "",
+                          ].join(" ")}
+                        >
+                          {/* Main row */}
+                          <div className="flex items-center gap-2">
+                            <div className="shrink-0">
+                              {c.imageUrl ? (
+                                <img
+                                  src={c.imageUrl}
+                                  alt=""
+                                  className="h-9 w-9 rounded-lg object-cover border border-zinc-800"
+                                  referrerPolicy="no-referrer"
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <div
+                                  className="h-9 w-9 rounded-lg border border-zinc-800 bg-zinc-900 flex items-center justify-center text-xs text-zinc-300"
+                                  onClick={(e) => e.stopPropagation()}
+                                >
+                                  {initials(c.name)}
+                                </div>
+                              )}
+                            </div>
+
+                            <div className="flex-1 min-w-0">
+                              {isGM ? (
+                                <input
+                                  className="w-full rounded-xl bg-zinc-900 border border-zinc-800 px-2 py-1.5 text-sm"
+                                  value={c.name}
+                                  onChange={(e) => updateCombatant(c.id, { name: e.target.value })}
+                                  onClick={(e) => e.stopPropagation()}
+                                />
+                              ) : (
+                                <div className="text-sm truncate">{c.name}</div>
+                              )}
+                            </div>
+
+                            {isGM ? (
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-14 shrink-0 rounded-xl bg-zinc-900 border border-zinc-800 px-2 py-1.5 text-sm text-center"
+                                value={c.initiative}
+                                onChange={(e) => updateCombatant(c.id, { initiative: Number(e.target.value) })}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                            ) : (
+                              <div className="text-sm text-zinc-400 shrink-0 w-8 text-right">{c.initiative}</div>
+                            )}
+
+                            {isGM && (
+                              <button
+                                className="h-9 w-9 shrink-0 rounded-xl bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-sm flex items-center justify-center"
+                                onClick={(e) => { e.stopPropagation(); removeCombatant(c.id); }}
+                                title="Remove"
+                              >
+                                ✕
+                              </button>
+                            )}
+                          </div>
+
+                          {/* HP row */}
+                          {isGM ? (
+                            <div className="mt-2 pl-[44px] flex items-center gap-1">
+                              <HpBar hp={c.hp ?? 0} maxHp={c.maxHp ?? 0} className="flex-1" />
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-11 shrink-0 rounded-lg bg-zinc-900 border border-zinc-800 px-1 py-0.5 text-xs text-center"
+                                value={c.hp ?? 0}
+                                onChange={(e) => updateCombatant(c.id, { hp: Number(e.target.value) })}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <span className="text-xs text-zinc-600">/</span>
+                              <input
+                                type="number"
+                                inputMode="numeric"
+                                className="w-11 shrink-0 rounded-lg bg-zinc-900 border border-zinc-800 px-1 py-0.5 text-xs text-center"
+                                value={c.maxHp ?? 0}
+                                onChange={(e) => updateCombatant(c.id, { maxHp: Number(e.target.value) })}
+                                onClick={(e) => e.stopPropagation()}
+                              />
+                              <span className="text-xs text-zinc-600">hp</span>
+                            </div>
+                          ) : (c.maxHp ?? 0) > 0 ? (
+                            <div className="mt-2 pl-[44px]">
+                              <HpBar hp={c.hp ?? 0} maxHp={c.maxHp!} />
+                              <div className="mt-0.5 text-xs text-zinc-500">{c.hp ?? 0} / {c.maxHp} hp</div>
+                            </div>
+                          ) : null}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
               </div>
             )}
           </main>
