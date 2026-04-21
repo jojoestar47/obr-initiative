@@ -162,6 +162,7 @@ export default function App() {
   const { isGM, ready: gmReady } = useIsGM();
 
   const [ready, setReady] = useState(false);
+  const [stateLoaded, setStateLoaded] = useState(false);
   const [state, setState] = useState<TrackerState>(defaultState());
 
   // global roll modifier (optional)
@@ -173,13 +174,15 @@ export default function App() {
   // collapsible bottom ribbon (GM only will be shown)
   const [controlsOpen, setControlsOpen] = useState(true);
 
-  // Turn notification — undefined = not yet initialised (suppress first fire)
+  // Turn notifications
   const prevActiveIdRef = useRef<string | null | undefined>(undefined);
+  const notifIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     return OBR.onReady(async () => {
       setReady(true);
       setState(await loadState());
+      setStateLoaded(true); // arm notifications only after real state is in place
     });
   }, []);
 
@@ -188,21 +191,29 @@ export default function App() {
     return onStateChange(setState);
   }, [ready]);
 
+  // Derived stable primitives — the effect only re-runs when these strings change,
+  // not on every HP / name edit (which would produce a new state.combatants reference).
+  const activeCombatantId   = state.combatants[state.activeIndex]?.id   ?? null;
+  const activeCombatantName = state.combatants[state.activeIndex]?.name ?? "";
+
   // Fire a notification whenever the active combatant changes.
-  // Every connected client runs this independently — no broadcast needed.
+  // Gated on stateLoaded so the initial hydration from OBR metadata never triggers one.
+  // Closes the previous toast before opening the next so rapid clicking doesn't stack.
   useEffect(() => {
-    if (!ready) return;
-    const active = state.combatants[state.activeIndex];
-    const activeId = active?.id ?? null;
+    if (!stateLoaded) return;
     if (prevActiveIdRef.current === undefined) {
-      prevActiveIdRef.current = activeId;
+      prevActiveIdRef.current = activeCombatantId;
       return;
     }
-    if (prevActiveIdRef.current !== activeId) {
-      prevActiveIdRef.current = activeId;
-      if (active) OBR.notification.show(`${active.name}'s turn`, "INFO");
-    }
-  }, [state.activeIndex, state.combatants, ready]);
+    if (prevActiveIdRef.current === activeCombatantId) return;
+    prevActiveIdRef.current = activeCombatantId;
+    if (!activeCombatantId) return;
+
+    if (notifIdRef.current) OBR.notification.close(notifIdRef.current);
+    OBR.notification
+      .show(`${activeCombatantName}'s turn`, "INFO")
+      .then((id) => { notifIdRef.current = id; });
+  }, [activeCombatantId, activeCombatantName, stateLoaded]);
 
   const activeCombatant = useMemo(() => state.combatants[state.activeIndex] ?? null, [state]);
   const upNext = useMemo(() => {
@@ -409,6 +420,11 @@ export default function App() {
             100% { box-shadow: 0 0 0px rgba(16,185,129,0.0), 0 0 0px rgba(16,185,129,0.0); }
           }
           .active-glow { animation: initGlow 1.8s ease-in-out infinite; }
+          @keyframes spotlightIn {
+            from { opacity: 0; transform: translateY(-8px) scale(0.97); }
+            to   { opacity: 1; transform: translateY(0)    scale(1);    }
+          }
+          .spotlight-in { animation: spotlightIn 0.2s ease-out; }
         `}
       </style>
 
@@ -466,7 +482,7 @@ export default function App() {
 
                 {/* ── Spotlight: active combatant ── */}
                 {activeCombatant && (
-                  <div className="rounded-2xl border border-emerald-500/70 bg-emerald-500/10 active-glow p-4">
+                  <div key={activeCombatant.id} className="spotlight-in rounded-2xl border border-emerald-500/70 bg-emerald-500/10 active-glow p-4">
                     <div className="flex items-start gap-3">
                       {/* Avatar */}
                       <div
@@ -477,11 +493,11 @@ export default function App() {
                           <img
                             src={activeCombatant.imageUrl}
                             alt=""
-                            className="h-14 w-14 rounded-xl object-cover border border-zinc-700"
+                            className="h-14 w-14 rounded-full object-cover border border-zinc-700"
                             referrerPolicy="no-referrer"
                           />
                         ) : (
-                          <div className="h-14 w-14 rounded-xl border border-zinc-700 bg-zinc-900 flex items-center justify-center text-base text-zinc-300">
+                          <div className="h-14 w-14 rounded-full border border-zinc-700 bg-zinc-900 flex items-center justify-center text-base text-zinc-300">
                             {initials(activeCombatant.name)}
                           </div>
                         )}
@@ -589,13 +605,13 @@ export default function App() {
                                 <img
                                   src={c.imageUrl}
                                   alt=""
-                                  className="h-9 w-9 rounded-lg object-cover border border-zinc-800"
+                                  className="h-9 w-9 rounded-full object-cover border border-zinc-800"
                                   referrerPolicy="no-referrer"
                                   onClick={(e) => e.stopPropagation()}
                                 />
                               ) : (
                                 <div
-                                  className="h-9 w-9 rounded-lg border border-zinc-800 bg-zinc-900 flex items-center justify-center text-xs text-zinc-300"
+                                  className="h-9 w-9 rounded-full border border-zinc-800 bg-zinc-900 flex items-center justify-center text-xs text-zinc-300"
                                   onClick={(e) => e.stopPropagation()}
                                 >
                                   {initials(c.name)}
