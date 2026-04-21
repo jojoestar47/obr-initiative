@@ -411,7 +411,7 @@ export default function App() {
             </div>
           </header>
 
-          <main className="flex-1 overflow-auto p-3">
+          <main className="flex-1 min-h-0 overflow-auto p-3">
             {!ready ? (
               <div className="text-zinc-400 text-sm">Loading Owlbear SDK…</div>
             ) : state.combatants.length === 0 ? (
