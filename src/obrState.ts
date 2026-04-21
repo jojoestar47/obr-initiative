@@ -6,9 +6,9 @@ export type Combatant = {
   name: string;
   initiative: number;
   imageUrl?: string;
-
-  // NEW: Dex mod / bonus to initiative (optional)
   initiativeMod?: number;
+  hp?: number;
+  maxHp?: number;
 };
 
 export type TrackerState = {
