@@ -263,25 +263,10 @@ export default function App() {
     if (!activeCombatantId) return;
     if (!showNotifRef.current) return;
 
-    // Snapshot values at the time the effect fires so the async block below
-    // doesn't close over a ref that might change before it executes.
-    const thisId   = activeCombatantId;
-    const thisName = activeCombatantNameRef.current;
-
-    (async () => {
-      // Grab and immediately clear the previous ID so a concurrent firing
-      // (rapid Next clicks) won't try to close the same notification twice.
-      const prevId = notifIdRef.current;
-      notifIdRef.current = null;
-      try { if (prevId) await OBR.notification.close(prevId); } catch {}
-
-      // Bail if a newer turn has already taken over while we were awaiting close.
-      if (prevActiveIdRef.current !== thisId) return;
-
-      try {
-        notifIdRef.current = await OBR.notification.show(`${thisName}'s turn`, "INFO");
-      } catch {}
-    })();
+    // Fire-and-forget, matching how other OBR extensions use the notification API.
+    // Awaiting close() before show() can cause close() to hang indefinitely when
+    // the notification has already auto-dismissed, silently blocking show().
+    OBR.notification.show(`${activeCombatantNameRef.current}'s turn`, "INFO").catch(() => {});
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCombatantId, ready]);
 
@@ -294,27 +279,27 @@ export default function App() {
 
     (async () => {
       try {
-        const items = await OBR.scene.items.getItems([activeTokenId]);
-        if (!items.length) return;
-        const pos = (items[0] as Image).position;
+        // getItemBounds gives the visual centre of the token (accounts for token
+        // size/scale), which is more accurate than item.position alone.
+        const bounds = await OBR.scene.items.getItemBounds([activeTokenId]);
 
-        // Find where the token is on screen right now, then shift the viewport
-        // so that point ends up at screen centre. Using transformPoint avoids
-        // having to guess the OBR coordinate convention for animateTo.position.
-        const [scale, vWidth, vHeight, currentVP, tokenScreen] = await Promise.all([
+        const [scale, vWidth, vHeight] = await Promise.all([
           OBR.viewport.getScale(),
           OBR.viewport.getWidth(),
           OBR.viewport.getHeight(),
-          OBR.viewport.getPosition(),
-          OBR.viewport.transformPoint(pos),
         ]);
 
+        // OBR's animateTo.position is the screen-space coordinate of world
+        // origin (0,0) — NOT the viewport top-left in world space.
+        // To centre on a token at world (cx, cy):
+        //   screen_x_of_origin = viewportWidth/2  - cx * scale
+        //   screen_y_of_origin = viewportHeight/2 - cy * scale
         await OBR.viewport.animateTo({
-          position: {
-            x: currentVP.x + (tokenScreen.x - vWidth  / 2) / scale,
-            y: currentVP.y + (tokenScreen.y - vHeight / 2) / scale,
-          },
           scale,
+          position: {
+            x: vWidth  / 2 - bounds.center.x * scale,
+            y: vHeight / 2 - bounds.center.y * scale,
+          },
         });
       } catch { /* non-critical */ }
     })();
