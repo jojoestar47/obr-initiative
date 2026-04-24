@@ -269,12 +269,17 @@ export default function App() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeCombatantId, ready]);
 
-  // Viewport pan: animates to the active token when the turn changes (if enabled).
+  // Select + pan: fires when the active combatant changes (after initial load).
   useEffect(() => {
     if (!ready) return;
     if (!panArmedRef.current) { panArmedRef.current = true; return; }
-    if (!panSettingRef.current) return;
     if (!activeTokenId) return;
+
+    // Always select the token on the map so the GM can see which mini is active.
+    OBR.player.select([activeTokenId]).catch(() => {});
+
+    // Camera pan is optional — skip if the setting is off.
+    if (!panSettingRef.current) return;
 
     (async () => {
       try {
