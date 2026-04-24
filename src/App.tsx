@@ -2,8 +2,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import OBR, { isImage } from "@owlbear-rodeo/sdk";
 import type { Image } from "@owlbear-rodeo/sdk";
 
-import type { Combatant, TrackerState } from "./obrState";
-import { defaultState, loadState, onStateChange, saveState } from "./obrState";
+import type { Combatant, TrackerSettings, TrackerState } from "./obrState";
+import { defaultSettings, defaultState, loadState, onStateChange, saveState } from "./obrState";
 import { useIsGM, requireGM } from "./gmOnly";
 
 const uid = () => crypto.randomUUID();
@@ -81,6 +81,39 @@ function rollD20(): number {
 function toIntOr0(v: unknown): number {
   const n = typeof v === "number" ? v : Number(v);
   return Number.isFinite(n) ? Math.trunc(n) : 0;
+}
+
+function Toggle({ checked, onChange }: { checked: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <button
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={[
+        "relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors active:opacity-80",
+        checked ? "bg-emerald-600" : "bg-zinc-700",
+      ].join(" ")}
+    >
+      <span
+        className={[
+          "inline-block h-4 w-4 rounded-full bg-white shadow transition-transform",
+          checked ? "translate-x-6" : "translate-x-1",
+        ].join(" ")}
+      />
+    </button>
+  );
+}
+
+function GearIcon({ className = "" }: { className?: string }) {
+  return (
+    <svg viewBox="0 0 24 24" className={className} fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+      <path
+        d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"
+        stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
+      />
+    </svg>
+  );
 }
 
 function HpBar({ hp, maxHp, className = "" }: { hp: number; maxHp: number; className?: string }) {
@@ -162,8 +195,8 @@ export default function App() {
   const { isGM, ready: gmReady } = useIsGM();
 
   const [ready, setReady] = useState(false);
-  const [stateLoaded, setStateLoaded] = useState(false);
   const [state, setState] = useState<TrackerState>(defaultState());
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // global roll modifier (optional)
   const [globalMod, setGlobalMod] = useState<number>(0);
@@ -174,15 +207,23 @@ export default function App() {
   // collapsible bottom ribbon (GM only will be shown)
   const [controlsOpen, setControlsOpen] = useState(true);
 
-  // Turn notifications
+  // Notification refs
   const prevActiveIdRef = useRef<string | null | undefined>(undefined);
   const notifIdRef = useRef<string | null>(null);
+  // Pan ref — avoid stale closure without adding deps that trigger extra renders
+  const panSettingRef = useRef(defaultSettings.panToActive);
+  // Arm pan after first render (skip pan on initial load)
+  const panArmedRef = useRef(false);
 
   useEffect(() => {
     return OBR.onReady(async () => {
       setReady(true);
-      setState(await loadState());
-      setStateLoaded(true); // arm notifications only after real state is in place
+      const loaded = await loadState();
+      // Pre-arm the notification ref with the real active ID *before* calling
+      // setState so the upcoming render doesn't look like a turn change.
+      prevActiveIdRef.current = loaded.combatants[loaded.activeIndex]?.id ?? null;
+      panSettingRef.current = loaded.settings?.panToActive ?? defaultSettings.panToActive;
+      setState(loaded);
     });
   }, []);
 
@@ -191,16 +232,19 @@ export default function App() {
     return onStateChange(setState);
   }, [ready]);
 
-  // Derived stable primitives — the effect only re-runs when these strings change,
-  // not on every HP / name edit (which would produce a new state.combatants reference).
-  const activeCombatantId   = state.combatants[state.activeIndex]?.id   ?? null;
-  const activeCombatantName = state.combatants[state.activeIndex]?.name ?? "";
+  // Stable primitives — effect only re-runs when these string values change,
+  // not on every HP/name edit (those produce a new array ref but same ID/name).
+  const activeCombatantId   = state.combatants[state.activeIndex]?.id      ?? null;
+  const activeCombatantName = state.combatants[state.activeIndex]?.name    ?? "";
+  const activeTokenId       = state.combatants[state.activeIndex]?.tokenId ?? null;
 
-  // Fire a notification whenever the active combatant changes.
-  // Gated on stateLoaded so the initial hydration from OBR metadata never triggers one.
-  // Closes the previous toast before opening the next so rapid clicking doesn't stack.
+  // Keep the pan setting ref in sync whenever settings change in state.
+  panSettingRef.current = state.settings?.panToActive ?? defaultSettings.panToActive;
+
+  // Notification: fires when the active combatant ID changes, never on load.
   useEffect(() => {
-    if (!stateLoaded) return;
+    if (!ready) return;
+    // Fallback arm: covers the edge case where setReady fires before loadState resolves.
     if (prevActiveIdRef.current === undefined) {
       prevActiveIdRef.current = activeCombatantId;
       return;
@@ -209,11 +253,35 @@ export default function App() {
     prevActiveIdRef.current = activeCombatantId;
     if (!activeCombatantId) return;
 
-    if (notifIdRef.current) OBR.notification.close(notifIdRef.current);
-    OBR.notification
-      .show(`${activeCombatantName}'s turn`, "INFO")
-      .then((id) => { notifIdRef.current = id; });
-  }, [activeCombatantId, activeCombatantName, stateLoaded]);
+    // Close previous toast then show new one — prevents stacking on rapid clicks.
+    (async () => {
+      try { if (notifIdRef.current) await OBR.notification.close(notifIdRef.current); } catch {}
+      try { notifIdRef.current = await OBR.notification.show(`${activeCombatantName}'s turn`, "INFO"); } catch {}
+    })();
+  }, [activeCombatantId, activeCombatantName, ready]);
+
+  // Viewport pan: animates to the active token when the turn changes (if enabled).
+  useEffect(() => {
+    if (!ready) return;
+    if (!panArmedRef.current) { panArmedRef.current = true; return; }
+    if (!panSettingRef.current) return;
+    if (!activeTokenId) return;
+
+    (async () => {
+      try {
+        const items = await OBR.scene.items.getItems([activeTokenId]);
+        if (!items.length) return;
+        const pos = (items[0] as Image).position;
+        const scale  = await OBR.viewport.getScale();
+        const vWidth  = await OBR.viewport.getWidth();
+        const vHeight = await OBR.viewport.getHeight();
+        await OBR.viewport.animateTo({
+          position: { x: pos.x - vWidth / (2 * scale), y: pos.y - vHeight / (2 * scale) },
+          scale,
+        });
+      } catch { /* non-critical */ }
+    })();
+  }, [activeCombatantId, activeTokenId, ready]);
 
   const activeCombatant = useMemo(() => state.combatants[state.activeIndex] ?? null, [state]);
   const upNext = useMemo(() => {
@@ -319,6 +387,11 @@ export default function App() {
     if (!(await requireGM())) return;
     const nextList = state.combatants.map((c) => (c.id === id ? { ...c, ...patch } : c));
     await commit({ ...state, combatants: nextList });
+  }
+
+  async function updateSettings(patch: Partial<TrackerSettings>) {
+    if (!(await requireGM())) return;
+    await commit({ ...state, settings: { ...defaultSettings, ...state.settings, ...patch } });
   }
 
   async function sortByInitiative() {
@@ -464,11 +537,53 @@ export default function App() {
               >
                 Next
               </button>
+
+              {isGM && (
+                <button
+                  className={[
+                    "h-11 w-11 rounded-xl text-sm flex items-center justify-center",
+                    settingsOpen
+                      ? "bg-zinc-700 text-zinc-100"
+                      : "bg-zinc-800 hover:bg-zinc-700 active:bg-zinc-600 text-zinc-400 hover:text-zinc-200",
+                  ].join(" ")}
+                  onClick={() => setSettingsOpen((v) => !v)}
+                  title="Settings"
+                >
+                  <GearIcon className="h-5 w-5" />
+                </button>
+              )}
             </div>
           </header>
 
           <main className="flex-1 min-h-0 overflow-auto p-3">
-            {!ready ? (
+            {/* ── Settings panel ── */}
+            {settingsOpen ? (
+              <div className="space-y-3">
+                <div className="text-sm font-semibold text-zinc-300 px-1">DM Settings</div>
+
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-zinc-200">Show HP to players</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">Players can see health bars and HP values</div>
+                  </div>
+                  <Toggle
+                    checked={state.settings?.showHpToPlayers ?? defaultSettings.showHpToPlayers}
+                    onChange={(v) => updateSettings({ showHpToPlayers: v })}
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-zinc-200">Pan to active token</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">Map pans to the active token when turns change</div>
+                  </div>
+                  <Toggle
+                    checked={state.settings?.panToActive ?? defaultSettings.panToActive}
+                    onChange={(v) => updateSettings({ panToActive: v })}
+                  />
+                </div>
+              </div>
+            ) : !ready ? (
               <div className="text-zinc-400 text-sm">Loading Owlbear SDK…</div>
             ) : state.combatants.length === 0 ? (
               <div className="text-zinc-400 text-sm">
@@ -477,7 +592,9 @@ export default function App() {
                   <> Select tokens, then click <span className="text-zinc-200">Add Selected</span>.</>
                 )}
               </div>
-            ) : (
+            ) : (() => {
+              const showHp = isGM || (state.settings?.showHpToPlayers ?? defaultSettings.showHpToPlayers);
+              return (
               <div className="space-y-4">
 
                 {/* ── Spotlight: active combatant ── */}
@@ -533,38 +650,40 @@ export default function App() {
                           )}
                         </div>
 
-                        {/* HP bar + inputs */}
-                        <div className="mt-2.5">
-                          <HpBar hp={activeCombatant.hp ?? 0} maxHp={activeCombatant.maxHp ?? 0} />
-                          <div className="mt-1.5 flex items-center gap-1">
-                            {isGM ? (
-                              <>
-                                <input
-                                  type="number"
-                                  inputMode="numeric"
-                                  className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
-                                  value={activeCombatant.hp ?? 0}
-                                  onChange={(e) => updateCombatant(activeCombatant.id, { hp: Number(e.target.value) })}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                                <span className="text-xs text-zinc-500">/</span>
-                                <input
-                                  type="number"
-                                  inputMode="numeric"
-                                  className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
-                                  value={activeCombatant.maxHp ?? 0}
-                                  onChange={(e) => updateCombatant(activeCombatant.id, { maxHp: Number(e.target.value) })}
-                                  onClick={(e) => e.stopPropagation()}
-                                />
-                                <span className="text-xs text-zinc-500">hp</span>
-                              </>
-                            ) : (activeCombatant.maxHp ?? 0) > 0 ? (
-                              <span className="text-xs text-zinc-400">
-                                {activeCombatant.hp ?? 0} / {activeCombatant.maxHp} hp
-                              </span>
-                            ) : null}
+                        {/* HP bar + inputs (respects showHp setting) */}
+                        {showHp && (
+                          <div className="mt-2.5">
+                            <HpBar hp={activeCombatant.hp ?? 0} maxHp={activeCombatant.maxHp ?? 0} />
+                            <div className="mt-1.5 flex items-center gap-1">
+                              {isGM ? (
+                                <>
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
+                                    value={activeCombatant.hp ?? 0}
+                                    onChange={(e) => updateCombatant(activeCombatant.id, { hp: Number(e.target.value) })}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span className="text-xs text-zinc-500">/</span>
+                                  <input
+                                    type="number"
+                                    inputMode="numeric"
+                                    className="w-14 rounded-lg bg-zinc-900 border border-zinc-700 px-1.5 py-0.5 text-xs text-center"
+                                    value={activeCombatant.maxHp ?? 0}
+                                    onChange={(e) => updateCombatant(activeCombatant.id, { maxHp: Number(e.target.value) })}
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                  <span className="text-xs text-zinc-500">hp</span>
+                                </>
+                              ) : (activeCombatant.maxHp ?? 0) > 0 ? (
+                                <span className="text-xs text-zinc-400">
+                                  {activeCombatant.hp ?? 0} / {activeCombatant.maxHp} hp
+                                </span>
+                              ) : null}
+                            </div>
                           </div>
-                        </div>
+                        )}
                       </div>
                     </div>
 
@@ -594,7 +713,7 @@ export default function App() {
                           onClick={() => selectTokenForCombatant(c)}
                           className={[
                             "rounded-2xl border border-zinc-800 bg-zinc-950/30 px-2.5 pt-2.5",
-                            isGM || (c.maxHp ?? 0) > 0 ? "pb-2" : "pb-2.5",
+                            showHp && (isGM || (c.maxHp ?? 0) > 0) ? "pb-2" : "pb-2.5",
                             c.tokenId ? "cursor-pointer" : "",
                           ].join(" ")}
                         >
@@ -657,7 +776,7 @@ export default function App() {
                           </div>
 
                           {/* HP row */}
-                          {isGM ? (
+                          {showHp ? isGM ? (
                             <div className="mt-2 pl-[44px] flex items-center gap-1">
                               <HpBar hp={c.hp ?? 0} maxHp={c.maxHp ?? 0} className="flex-1" />
                               <input
@@ -684,14 +803,15 @@ export default function App() {
                               <HpBar hp={c.hp ?? 0} maxHp={c.maxHp!} />
                               <div className="mt-0.5 text-xs text-zinc-500">{c.hp ?? 0} / {c.maxHp} hp</div>
                             </div>
-                          ) : null}
+                          ) : null : null}
                         </li>
                       ))}
                     </ul>
                   </div>
                 )}
               </div>
-            )}
+            );
+          })()}
           </main>
 
           {/* GM-only Controls */}

@@ -11,11 +11,22 @@ export type Combatant = {
   maxHp?: number;
 };
 
+export type TrackerSettings = {
+  showHpToPlayers: boolean;
+  panToActive: boolean;
+};
+
+export const defaultSettings: TrackerSettings = {
+  showHpToPlayers: true,
+  panToActive: true,
+};
+
 export type TrackerState = {
   version: 1;
   activeIndex: number;
   round: number;
   combatants: Combatant[];
+  settings: TrackerSettings;
 };
 
 const META_KEY = "com.josiahf.initiative/state";
@@ -25,6 +36,7 @@ export const defaultState = (): TrackerState => ({
   activeIndex: 0,
   round: 1,
   combatants: [],
+  settings: { ...defaultSettings },
 });
 
 function parseState(raw: unknown): TrackerState | null {
@@ -33,6 +45,8 @@ function parseState(raw: unknown): TrackerState | null {
     const s = JSON.parse(raw) as TrackerState;
     if (!s || s.version !== 1) return null;
     if (!Array.isArray(s.combatants)) return null;
+    // Backward compat: fill missing settings with defaults
+    if (!s.settings) s.settings = { ...defaultSettings };
     return s;
   } catch {
     return null;
