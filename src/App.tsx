@@ -209,7 +209,6 @@ export default function App() {
 
   // Notification refs
   const prevActiveIdRef = useRef<string | null | undefined>(undefined);
-  const notifIdRef = useRef<string | null>(null);
   // Keep the active combatant name readable inside async IIFEs without adding
   // it to effect deps (which would re-fire the notification on name edits).
   const activeCombatantNameRef = useRef("");
