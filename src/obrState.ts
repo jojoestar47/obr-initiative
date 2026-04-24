@@ -14,11 +14,13 @@ export type Combatant = {
 export type TrackerSettings = {
   showHpToPlayers: boolean;
   panToActive: boolean;
+  showNotifications: boolean;
 };
 
 export const defaultSettings: TrackerSettings = {
   showHpToPlayers: true,
   panToActive: true,
+  showNotifications: true,
 };
 
 export type TrackerState = {

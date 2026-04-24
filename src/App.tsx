@@ -210,8 +210,12 @@ export default function App() {
   // Notification refs
   const prevActiveIdRef = useRef<string | null | undefined>(undefined);
   const notifIdRef = useRef<string | null>(null);
-  // Pan ref — avoid stale closure without adding deps that trigger extra renders
+  // Keep the active combatant name readable inside async IIFEs without adding
+  // it to effect deps (which would re-fire the notification on name edits).
+  const activeCombatantNameRef = useRef("");
+  // Settings refs — read inside effects without stale-closure deps
   const panSettingRef = useRef(defaultSettings.panToActive);
+  const showNotifRef = useRef(defaultSettings.showNotifications);
   // Arm pan after first render (skip pan on initial load)
   const panArmedRef = useRef(false);
 
@@ -223,6 +227,7 @@ export default function App() {
       // setState so the upcoming render doesn't look like a turn change.
       prevActiveIdRef.current = loaded.combatants[loaded.activeIndex]?.id ?? null;
       panSettingRef.current = loaded.settings?.panToActive ?? defaultSettings.panToActive;
+      showNotifRef.current = loaded.settings?.showNotifications ?? defaultSettings.showNotifications;
       setState(loaded);
     });
   }, []);
@@ -238,10 +243,14 @@ export default function App() {
   const activeCombatantName = state.combatants[state.activeIndex]?.name    ?? "";
   const activeTokenId       = state.combatants[state.activeIndex]?.tokenId ?? null;
 
-  // Keep the pan setting ref in sync whenever settings change in state.
-  panSettingRef.current = state.settings?.panToActive ?? defaultSettings.panToActive;
+  // Keep setting refs in sync so async effect closures always read current values.
+  activeCombatantNameRef.current = activeCombatantName;
+  panSettingRef.current  = state.settings?.panToActive        ?? defaultSettings.panToActive;
+  showNotifRef.current   = state.settings?.showNotifications  ?? defaultSettings.showNotifications;
 
   // Notification: fires when the active combatant ID changes, never on load.
+  // activeCombatantName is intentionally NOT in deps — we read it via ref so that
+  // editing a name mid-combat doesn't spuriously re-fire this effect.
   useEffect(() => {
     if (!ready) return;
     // Fallback arm: covers the edge case where setReady fires before loadState resolves.
@@ -252,13 +261,29 @@ export default function App() {
     if (prevActiveIdRef.current === activeCombatantId) return;
     prevActiveIdRef.current = activeCombatantId;
     if (!activeCombatantId) return;
+    if (!showNotifRef.current) return;
 
-    // Close previous toast then show new one — prevents stacking on rapid clicks.
+    // Snapshot values at the time the effect fires so the async block below
+    // doesn't close over a ref that might change before it executes.
+    const thisId   = activeCombatantId;
+    const thisName = activeCombatantNameRef.current;
+
     (async () => {
-      try { if (notifIdRef.current) await OBR.notification.close(notifIdRef.current); } catch {}
-      try { notifIdRef.current = await OBR.notification.show(`${activeCombatantName}'s turn`, "INFO"); } catch {}
+      // Grab and immediately clear the previous ID so a concurrent firing
+      // (rapid Next clicks) won't try to close the same notification twice.
+      const prevId = notifIdRef.current;
+      notifIdRef.current = null;
+      try { if (prevId) await OBR.notification.close(prevId); } catch {}
+
+      // Bail if a newer turn has already taken over while we were awaiting close.
+      if (prevActiveIdRef.current !== thisId) return;
+
+      try {
+        notifIdRef.current = await OBR.notification.show(`${thisName}'s turn`, "INFO");
+      } catch {}
     })();
-  }, [activeCombatantId, activeCombatantName, ready]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeCombatantId, ready]);
 
   // Viewport pan: animates to the active token when the turn changes (if enabled).
   useEffect(() => {
@@ -272,11 +297,23 @@ export default function App() {
         const items = await OBR.scene.items.getItems([activeTokenId]);
         if (!items.length) return;
         const pos = (items[0] as Image).position;
-        const scale  = await OBR.viewport.getScale();
-        const vWidth  = await OBR.viewport.getWidth();
-        const vHeight = await OBR.viewport.getHeight();
+
+        // Find where the token is on screen right now, then shift the viewport
+        // so that point ends up at screen centre. Using transformPoint avoids
+        // having to guess the OBR coordinate convention for animateTo.position.
+        const [scale, vWidth, vHeight, currentVP, tokenScreen] = await Promise.all([
+          OBR.viewport.getScale(),
+          OBR.viewport.getWidth(),
+          OBR.viewport.getHeight(),
+          OBR.viewport.getPosition(),
+          OBR.viewport.transformPoint(pos),
+        ]);
+
         await OBR.viewport.animateTo({
-          position: { x: pos.x - vWidth / (2 * scale), y: pos.y - vHeight / (2 * scale) },
+          position: {
+            x: currentVP.x + (tokenScreen.x - vWidth  / 2) / scale,
+            y: currentVP.y + (tokenScreen.y - vHeight / 2) / scale,
+          },
           scale,
         });
       } catch { /* non-critical */ }
@@ -580,6 +617,17 @@ export default function App() {
                   <Toggle
                     checked={state.settings?.panToActive ?? defaultSettings.panToActive}
                     onChange={(v) => updateSettings({ panToActive: v })}
+                  />
+                </div>
+
+                <div className="rounded-2xl border border-zinc-800 bg-zinc-900/40 p-3 flex items-center justify-between gap-4">
+                  <div>
+                    <div className="text-sm text-zinc-200">Turn notifications</div>
+                    <div className="text-xs text-zinc-500 mt-0.5">Show a pop-up when a combatant's turn starts</div>
+                  </div>
+                  <Toggle
+                    checked={state.settings?.showNotifications ?? defaultSettings.showNotifications}
+                    onChange={(v) => updateSettings({ showNotifications: v })}
                   />
                 </div>
               </div>
